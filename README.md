@@ -1,5 +1,7 @@
 # TermiDone
 
+**This project was created with the help of the Gemini CLI.**
+
 A terminal-based TODO list and work timer built with Go and the Charmbracelet suite.
 
 ## Features
