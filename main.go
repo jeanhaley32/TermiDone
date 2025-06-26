@@ -41,6 +41,27 @@ var (
 	helpKeyStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 
 	helpDescStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+
+	columnStyle = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("63")).
+		Padding(1, 2).
+		Width(25)
+
+	focusedColumnStyle = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("205")).
+		Padding(1, 2).
+		Width(25)
+
+	taskStyle = lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder(), false, false, false, true).
+		BorderForeground(lipgloss.Color("240")).
+		Padding(0, 1)
+
+	completedTaskStyle = lipgloss.NewStyle().
+		Strikethrough(true).
+		Foreground(lipgloss.Color("240"))
 )
 
 // Task represents a single TODO item
@@ -51,6 +72,7 @@ type Task struct {
 	CreatedAt    time.Time     `json:"created_at"`
 	CompletedAt  time.Time     `json:"completed_at"`
 	WorkSessions []WorkSession `json:"work_sessions"`
+	Column       KanbanColumn  `json:"column"`
 }
 
 // WorkSession represents a single work session for a task
@@ -58,21 +80,6 @@ type WorkSession struct {
 	Start    time.Time     `json:"start"`
 	End      time.Time     `json:"end"`
 	Duration time.Duration `json:"duration"`
-}
-
-// Implement the list.Item interface for Task
-func (t Task) FilterValue() string { return t.TaskTitle }
-func (t Task) Title() string {
-	if t.Completed {
-		return fmt.Sprintf("✓ %s", t.TaskTitle)
-	}
-	return t.TaskTitle
-}
-func (t Task) Description() string {
-	if t.Completed {
-		return fmt.Sprintf("Completed on %s", t.CompletedAt.Format("Jan 02, 2006"))
-	}
-	return fmt.Sprintf("Created on %s", t.CreatedAt.Format("Jan 02, 2006"))
 }
 
 // AppState represents the different states of the application
@@ -94,6 +101,30 @@ const (
 	KanbanView
 )
 
+// Implement the list.Item interface for Task
+func (t Task) FilterValue() string { return t.TaskTitle }
+func (t Task) Title() string {
+	if t.Completed {
+		return fmt.Sprintf("✓ %s", t.TaskTitle)
+	}
+	return t.TaskTitle
+}
+func (t Task) Description() string {
+	if t.Completed {
+		return fmt.Sprintf("Completed on %s", t.CompletedAt.Format("Jan 02, 2006"))
+	}
+	return fmt.Sprintf("Created on %s", t.CreatedAt.Format("Jan 02, 2006"))
+}
+
+// KanbanColumn represents the column a task is in
+type KanbanColumn int
+
+const (
+	ColumnTodo KanbanColumn = iota
+	ColumnInProgress
+	ColumnDone
+)
+
 // Model represents the application's state
 type model struct {
 	tasks         []Task
@@ -107,6 +138,8 @@ type model struct {
 	timerDuration time.Duration
 	timerStartTime time.Time
 	statusMessage string
+	selectedColumn KanbanColumn
+	selectedTaskIndex [3]int // 0: Todo, 1: InProgress, 2: Done
 }
 
 func initialModel() model {
@@ -121,6 +154,8 @@ func initialModel() model {
 		state:         StateViewTasks,
 		mainView:      ListView,
 		timerDuration: 25 * time.Minute, // Default Pomodoro duration
+		selectedColumn: ColumnTodo,
+		selectedTaskIndex: [3]int{0, 0, 0},
 	}
 
 	m.loadTasks()
@@ -153,6 +188,15 @@ func (m *model) loadTasks() {
 	if err != nil {
 		m.statusMessage = fmt.Sprintf("Error unmarshaling tasks: %v", err)
 		m.tasks = []Task{} // Reset tasks if unmarshaling fails
+	}
+
+	// Ensure all tasks have a column, default to ColumnTodo if not set
+	for i := range m.tasks {
+		if m.tasks[i].Column == 0 && !m.tasks[i].Completed {
+			m.tasks[i].Column = ColumnTodo
+		} else if m.tasks[i].Completed {
+			m.tasks[i].Column = ColumnDone
+		}
 	}
 }
 
@@ -253,6 +297,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						TaskTitle:     newTaskTitle,
 						Completed: false,
 						CreatedAt: time.Now(),
+						Column:    ColumnTodo,
 					})
 					m.saveTasks()
 					m.updateListItems()
@@ -298,15 +343,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.currentTask != nil {
 					for i := range m.tasks {
 						if m.tasks[i].ID == m.currentTask.ID {
-							m.tasks[i].Completed = true
-							m.tasks[i].CompletedAt = time.Now()
-							// Add work session
-							m.tasks[i].WorkSessions = append(m.tasks[i].WorkSessions, WorkSession{
-								Start: m.timerStartTime,
-								End:   time.Now(),
-								Duration: m.timerDuration,
-							})
-							break
+															m.tasks[i].Completed = true
+								m.tasks[i].CompletedAt = time.Now()
+								m.tasks[i].Column = ColumnDone // Set column to Done when completed
+								// Add work session
+								m.tasks[i].WorkSessions = append(m.tasks[i].WorkSessions, WorkSession{
+									Start: m.timerStartTime,
+									End:   time.Now(),
+									Duration: m.timerDuration,
+								})
+								break
 						}
 					}
 					m.saveTasks()
@@ -372,13 +418,17 @@ func (m model) updateListView(msg tea.Msg) (tea.Model, tea.Cmd) {
 							if m.tasks[i].ID == selectedTask.ID {
 								m.tasks[i].Completed = true
 								m.tasks[i].CompletedAt = time.Now()
-								break
+								m.tasks[i].Column = ColumnDone // Set column to Done when completed
+																	m.tasks[i].Completed = true
+									m.tasks[i].CompletedAt = time.Now()
+									m.tasks[i].Column = ColumnDone // Set column to Done when completed
+									break
+								}
 							}
+							m.saveTasks()
+							m.updateListItems()
+							m.statusMessage = fmt.Sprintf("Completed task: %s", selectedTask.TaskTitle)
 						}
-						m.saveTasks()
-						m.updateListItems()
-						m.statusMessage = fmt.Sprintf("Completed task: %s", selectedTask.TaskTitle)
-					}
 				}
 			}
 		case "t": // Start timer for selected task
@@ -424,16 +474,78 @@ func (m model) updateListView(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateKanbanView(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Placeholder for Kanban view update logic
+	// Get tasks for the currently selected column
+	currentColumnTasks := []Task{}
+	for _, task := range m.tasks {
+		if task.Column == m.selectedColumn {
+			currentColumnTasks = append(currentColumnTasks, task)
+		}
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q":
 			m.quitting = true
 			return m, tea.Quit
+		case "left", "h":
+			if m.selectedColumn > ColumnTodo {
+				m.selectedColumn--
+				m.statusMessage = fmt.Sprintf("Switched to %s column", m.columnName(m.selectedColumn))
+			}
+		case "right", "l":
+			if m.selectedColumn < ColumnDone {
+				m.selectedColumn++
+				m.statusMessage = fmt.Sprintf("Switched to %s column", m.columnName(m.selectedColumn))
+			}
+		case "up", "k":
+			if len(currentColumnTasks) > 0 && m.selectedTaskIndex[m.selectedColumn] > 0 {
+				m.selectedTaskIndex[m.selectedColumn]--
+			}
+		case "down", "j":
+			if len(currentColumnTasks) > 0 && m.selectedTaskIndex[m.selectedColumn] < len(currentColumnTasks)-1 {
+				m.selectedTaskIndex[m.selectedColumn]++
+			}
+		case "enter":
+			if len(currentColumnTasks) > 0 {
+				selectedTask := currentColumnTasks[m.selectedTaskIndex[m.selectedColumn]]
+				for i := range m.tasks {
+					if m.tasks[i].ID == selectedTask.ID {
+						if m.tasks[i].Column < ColumnDone {
+							m.tasks[i].Column++
+							if m.tasks[i].Column == ColumnDone {
+								m.tasks[i].Completed = true
+								m.tasks[i].CompletedAt = time.Now()
+							}
+							m.saveTasks()
+							m.statusMessage = fmt.Sprintf("Moved task \"%s\" to %s", m.tasks[i].TaskTitle, m.columnName(m.tasks[i].Column))
+							// Reset selected task index for the old column if it's out of bounds
+							// This is a simplified approach; a more robust solution might re-evaluate all indices.
+							if m.selectedTaskIndex[m.selectedColumn] >= len(currentColumnTasks)-1 && len(currentColumnTasks) > 1 {
+								m.selectedTaskIndex[m.selectedColumn]--
+							}
+							break
+						}
+					}
+				}
+			} else {
+				m.statusMessage = "No tasks to move in this column."
+			}
 		}
 	}
 	return m, nil
+}
+
+func (m model) columnName(col KanbanColumn) string {
+	switch col {
+	case ColumnTodo:
+		return "TODO"
+	case ColumnInProgress:
+		return "IN PROGRESS"
+	case ColumnDone:
+		return "DONE"
+	}
+	return "Unknown"
 }
 
 func (m model) View() string {
@@ -522,10 +634,90 @@ func (m model) viewListView() string {
 }
 
 func (m model) viewKanbanView() string {
+	// Filter tasks by column
+	todoTasks := []Task{}
+	inProgressTasks := []Task{}
+	doneTasks := []Task{}
+
+	for _, task := range m.tasks {
+		if task.Completed {
+			doneTasks = append(doneTasks, task)
+			continue
+		}
+		switch task.Column {
+		case ColumnTodo:
+			todoTasks = append(todoTasks, task)
+		case ColumnInProgress:
+			inProgressTasks = append(inProgressTasks, task)
+		}
+	}
+
+	// Render columns
+	var todoContent, inProgressContent, doneContent string
+
+	// Render TODO column
+	for i, task := range todoTasks {
+		style := taskStyle
+		if m.selectedColumn == ColumnTodo && i == m.selectedTaskIndex[ColumnTodo] {
+			style = style.Copy().BorderForeground(lipgloss.Color("205"))
+		}
+		todoContent += style.Render(task.Title()) + "\n"
+	}
+
+	// Render In Progress column
+	for i, task := range inProgressTasks {
+		style := taskStyle
+		if m.selectedColumn == ColumnInProgress && i == m.selectedTaskIndex[ColumnInProgress] {
+			style = style.Copy().BorderForeground(lipgloss.Color("205"))
+		}
+		inProgressContent += style.Render(task.Title()) + "\n"
+	}
+
+	// Render Done column
+	for i, task := range doneTasks {
+		style := completedTaskStyle
+		if m.selectedColumn == ColumnDone && i == m.selectedTaskIndex[ColumnDone] {
+			style = style.Copy().BorderForeground(lipgloss.Color("205"))
+		}
+		doneContent += style.Render(task.Title()) + "\n"
+	}
+
+	todoColumn := columnStyle.Render(lipgloss.JoinVertical(lipgloss.Left,
+		"TODO",
+		todoContent,
+	))
+	inProgressColumn := columnStyle.Render(lipgloss.JoinVertical(lipgloss.Left,
+		"IN PROGRESS",
+		inProgressContent,
+	))
+	doneColumn := columnStyle.Render(lipgloss.JoinVertical(lipgloss.Left,
+		"DONE",
+		doneContent,
+	))
+
+	switch m.selectedColumn {
+	case ColumnTodo:
+		todoColumn = focusedColumnStyle.Render(lipgloss.JoinVertical(lipgloss.Left,
+			"TODO",
+			todoContent,
+		))
+	case ColumnInProgress:
+		inProgressColumn = focusedColumnStyle.Render(lipgloss.JoinVertical(lipgloss.Left,
+			"IN PROGRESS",
+			inProgressContent,
+		))
+	case ColumnDone:
+		doneColumn = focusedColumnStyle.Render(lipgloss.JoinVertical(lipgloss.Left,
+			"DONE",
+			doneContent,
+		))
+	}
+
 	return appStyle.Render(lipgloss.JoinVertical(lipgloss.Left,
 		titleStyle.Render("TermiDone - Kanban View"),
-		"Kanban view coming soon...",
-		helpStyle.Render("q: quit | tab: list"),
+		lipgloss.JoinHorizontal(lipgloss.Top, todoColumn, inProgressColumn, doneColumn),
+		statusMessageStyle(m.statusMessage),
+		helpStyle.Render("q: quit | tab: list | ←/→: navigate columns | ↑/↓: navigate tasks | enter: move task"),
 	))
 }
 
@@ -537,8 +729,9 @@ func (m *model) helpView() string {
 		{"c", "Complete task"},
 		{"t", "Start timer for selected task"},
 		{"r", "Generate report"},
-		{"enter", "View task details"},
-		{"j/k, ↑/↓", "Navigate list"},
+		{"enter", "View task details / Move task (Kanban)"},
+		{"j/k, ↑/↓", "Navigate list / Navigate tasks (Kanban)"},
+		{"←/→", "Navigate columns (Kanban)"},
 		{"tab", "Toggle List/Kanban view"},
 		{"esc", "Go back / cancel"},
 		{"q", "Quit (from main view)"},
