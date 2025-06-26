@@ -517,23 +517,39 @@ func (m model) updateKanbanView(msg tea.Msg) (tea.Model, tea.Cmd) {
 								m.tasks[i].Completed = true
 								m.tasks[i].CompletedAt = time.Now()
 							}
-							m.saveTasks()
-							m.statusMessage = fmt.Sprintf("Moved task \"%s\" to %s", m.tasks[i].TaskTitle, m.columnName(m.tasks[i].Column))
-							// Reset selected task index for the old column if it's out of bounds
-							// This is a simplified approach; a more robust solution might re-evaluate all indices.
-							if m.selectedTaskIndex[m.selectedColumn] >= len(currentColumnTasks)-1 && len(currentColumnTasks) > 1 {
-								m.selectedTaskIndex[m.selectedColumn]--
-							}
-							break
-						}
-					}
-				}
-			} else {
-				m.statusMessage = "No tasks to move in this column."
-			}
-		}
-	}
-	return m, nil
+                            m.saveTasks()
+                            m.statusMessage = fmt.Sprintf("Moved task \"%s\" to %s", m.tasks[i].TaskTitle, m.columnName(m.tasks[i].Column))
+                            // Reset selected task index for the old column if it's out of bounds
+                            // This is a simplified approach; a more robust solution might re-evaluate all indices.
+                            if m.selectedTaskIndex[m.selectedColumn] >= len(currentColumnTasks)-1 && len(currentColumnTasks) > 1 {
+                                m.selectedTaskIndex[m.selectedColumn]--
+                            }
+                            break
+                        }
+                    }
+                }
+            } else {
+                m.statusMessage = "No tasks to move in this column."
+            }
+        case "u": // Uncomplete task
+            if len(currentColumnTasks) > 0 {
+                selectedTask := currentColumnTasks[m.selectedTaskIndex[m.selectedColumn]]
+                for i := range m.tasks {
+                    if m.tasks[i].ID == selectedTask.ID && m.tasks[i].Completed {
+                        m.tasks[i].Completed = false
+                        m.tasks[i].CompletedAt = time.Time{} // Reset CompletedAt
+                        m.tasks[i].Column = ColumnTodo       // Move back to Todo
+                        m.saveTasks()
+                        m.statusMessage = fmt.Sprintf("Uncompleted task: %s", m.tasks[i].TaskTitle)
+                        break
+                    }
+                }
+            } else {
+                m.statusMessage = "No task to uncomplete."
+            }
+        }
+    }
+    return m, nil
 }
 
 func (m model) columnName(col KanbanColumn) string {
@@ -717,7 +733,7 @@ func (m model) viewKanbanView() string {
 		titleStyle.Render("TermiDone - Kanban View"),
 		lipgloss.JoinHorizontal(lipgloss.Top, todoColumn, inProgressColumn, doneColumn),
 		statusMessageStyle(m.statusMessage),
-		helpStyle.Render("q: quit | tab: list | ←/→: navigate columns | ↑/↓: navigate tasks | enter: move task"),
+		helpStyle.Render("q: quit | tab: list | ←/→: navigate columns | ↑/↓: navigate tasks | enter: move task | u: uncomplete task"),
 	))
 }
 
