@@ -86,12 +86,21 @@ const (
 	StateViewTask
 )
 
+// MainView represents the two main views of the application
+type MainView int
+
+const (
+	ListView MainView = iota
+	KanbanView
+)
+
 // Model represents the application's state
 type model struct {
 	tasks         []Task
 	list          list.Model
 	textInput     textinput.Model
 	state         AppState
+	mainView      MainView
 	quitting      bool
 	currentTask   *Task // The task currently being worked on
 	timer         *time.Timer
@@ -110,6 +119,7 @@ func initialModel() model {
 	m := model{
 		textInput:     ti,
 		state:         StateViewTasks,
+		mainView:      ListView,
 		timerDuration: 25 * time.Minute, // Default Pomodoro duration
 	}
 
@@ -203,87 +213,31 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.list.SetWidth(msg.Width)
 		m.list.SetHeight(msg.Height - 5) // Adjust height for status/input
+		return m, nil
 	case tea.KeyMsg:
+		// Global keybindings
+		if msg.String() == "ctrl+c" {
+			m.quitting = true
+			return m, tea.Quit
+		}
+		if msg.String() == "tab" {
+			if m.state == StateViewTasks {
+				if m.mainView == ListView {
+					m.mainView = KanbanView
+				} else {
+					m.mainView = ListView
+				}
+			}
+			return m, nil
+		}
+
 		switch m.state {
 		case StateViewTasks:
-			switch msg.String() {
-			case "ctrl+c", "q":
-				m.quitting = true
-				return m, tea.Quit
-			case "n": // New task
-				m.state = StateAddTask
-				m.textInput.Reset()
-				return m, m.textInput.Focus()
-			case "d": // Delete task
-				if len(m.tasks) > 0 {
-					selectedItem := m.list.SelectedItem()
-					if selectedItem != nil {
-						selectedTask, ok := selectedItem.(Task)
-						if ok {
-							for i, task := range m.tasks {
-								if task.ID == selectedTask.ID {
-									m.tasks = append(m.tasks[:i], m.tasks[i+1:]...)
-									break
-								}
-							}
-							m.saveTasks()
-							m.updateListItems()
-							m.statusMessage = fmt.Sprintf("Deleted task: %s", selectedTask.TaskTitle)
-						}
-					}
-				}
-			case "c": // Complete task
-				if len(m.tasks) > 0 {
-					selectedItem := m.list.SelectedItem()
-					if selectedItem != nil {
-						selectedTask, ok := selectedItem.(Task)
-						if ok && !selectedTask.Completed {
-							for i := range m.tasks {
-								if m.tasks[i].ID == selectedTask.ID {
-									m.tasks[i].Completed = true
-									m.tasks[i].CompletedAt = time.Now()
-									break
-								}
-							}
-							m.saveTasks()
-							m.updateListItems()
-							m.statusMessage = fmt.Sprintf("Completed task: %s", selectedTask.TaskTitle)
-						}
-					}
-				}
-			case "t": // Start timer for selected task
-				if len(m.tasks) > 0 {
-					selectedItem := m.list.SelectedItem()
-					if selectedItem != nil {
-						selectedTask, ok := selectedItem.(Task)
-						if ok && !selectedTask.Completed {
-							taskCopy := selectedTask
-							m.currentTask = &taskCopy
-							m.state = StateTimer
-							m.timerStartTime = time.Now()
-							m.timer = time.NewTimer(m.timerDuration)
-							return m, tea.Tick(time.Second, func(t time.Time) tea.Msg {
-								return TimerTickMsg(t)
-							})
-						}
-					}
-				}
-			case "r": // Generate report
-				m.generateReport()
-			case "?":
-				m.state = StateHelp
-			case "enter":
-				if len(m.tasks) > 0 {
-					selectedItem := m.list.SelectedItem()
-					if selectedItem != nil {
-						selectedTask, ok := selectedItem.(Task)
-						if ok {
-							taskCopy := selectedTask
-							m.currentTask = &taskCopy
-							m.state = StateViewTask
-						}
-					}
-				}
+			switch m.mainView {
+			case ListView:
+				return m.updateListView(msg)
+			case KanbanView:
+				return m.updateKanbanView(msg)
 			}
 		case StateAddTask:
 			switch msg.String() {
@@ -314,7 +268,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		case StateTimer:
 			switch msg.String() {
-			case "ctrl+c", "q", "esc": // Allow quitting/stopping timer
+			case "q", "esc": // Allow quitting/stopping timer
 				if m.timer != nil {
 					m.timer.Stop()
 				}
@@ -373,12 +327,113 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	if m.state == StateViewTasks {
-		m.list, cmd = m.list.Update(msg)
-		cmds = append(cmds, cmd)
+	return m, tea.Batch(cmds...)
+}
+
+func (m model) updateListView(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	var cmds []tea.Cmd
+
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "q":
+			m.quitting = true
+			return m, tea.Quit
+		case "n": // New task
+			m.state = StateAddTask
+			m.textInput.Reset()
+			return m, m.textInput.Focus()
+		case "d": // Delete task
+			if len(m.tasks) > 0 {
+				selectedItem := m.list.SelectedItem()
+				if selectedItem != nil {
+					selectedTask, ok := selectedItem.(Task)
+					if ok {
+						for i, task := range m.tasks {
+							if task.ID == selectedTask.ID {
+								m.tasks = append(m.tasks[:i], m.tasks[i+1:]...)
+								break
+							}
+						}
+						m.saveTasks()
+						m.updateListItems()
+						m.statusMessage = fmt.Sprintf("Deleted task: %s", selectedTask.TaskTitle)
+					}
+				}
+			}
+		case "c": // Complete task
+			if len(m.tasks) > 0 {
+				selectedItem := m.list.SelectedItem()
+				if selectedItem != nil {
+					selectedTask, ok := selectedItem.(Task)
+					if ok && !selectedTask.Completed {
+						for i := range m.tasks {
+							if m.tasks[i].ID == selectedTask.ID {
+								m.tasks[i].Completed = true
+								m.tasks[i].CompletedAt = time.Now()
+								break
+							}
+						}
+						m.saveTasks()
+						m.updateListItems()
+						m.statusMessage = fmt.Sprintf("Completed task: %s", selectedTask.TaskTitle)
+					}
+				}
+			}
+		case "t": // Start timer for selected task
+			if len(m.tasks) > 0 {
+				selectedItem := m.list.SelectedItem()
+				if selectedItem != nil {
+					selectedTask, ok := selectedItem.(Task)
+					if ok && !selectedTask.Completed {
+						taskCopy := selectedTask
+						m.currentTask = &taskCopy
+						m.state = StateTimer
+						m.timerStartTime = time.Now()
+						m.timer = time.NewTimer(m.timerDuration)
+						return m, tea.Tick(time.Second, func(t time.Time) tea.Msg {
+							return TimerTickMsg(t)
+						})
+					}
+				}
+			}
+		case "r": // Generate report
+			m.generateReport()
+		case "?":
+			m.state = StateHelp
+		case "enter":
+			if len(m.tasks) > 0 {
+				selectedItem := m.list.SelectedItem()
+				if selectedItem != nil {
+					selectedTask, ok := selectedItem.(Task)
+					if ok {
+						taskCopy := selectedTask
+						m.currentTask = &taskCopy
+						m.state = StateViewTask
+					}
+				}
+			}
+		}
 	}
 
+	m.list, cmd = m.list.Update(msg)
+	cmds = append(cmds, cmd)
+
 	return m, tea.Batch(cmds...)
+}
+
+func (m model) updateKanbanView(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Placeholder for Kanban view update logic
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "q":
+			m.quitting = true
+			return m, tea.Quit
+		}
+	}
+	return m, nil
 }
 
 func (m model) View() string {
@@ -388,12 +443,12 @@ func (m model) View() string {
 
 	switch m.state {
 	case StateViewTasks:
-		return appStyle.Render(lipgloss.JoinVertical(lipgloss.Left,
-			titleStyle.Render("TermiDone"),
-			m.list.View(),
-			statusMessageStyle(m.statusMessage),
-			helpStyle.Render("n: new | d: del | c: complete | enter: view | ?: help | q: quit"),
-		))
+		switch m.mainView {
+		case ListView:
+			return m.viewListView()
+		case KanbanView:
+			return m.viewKanbanView()
+		}
 	case StateAddTask:
 		return appStyle.Render(lipgloss.JoinVertical(lipgloss.Left,
 			titleStyle.Render("Add New Task"),
@@ -457,6 +512,23 @@ func (m model) View() string {
 	return ""
 }
 
+func (m model) viewListView() string {
+	return appStyle.Render(lipgloss.JoinVertical(lipgloss.Left,
+		titleStyle.Render("TermiDone - List View"),
+		m.list.View(),
+		statusMessageStyle(m.statusMessage),
+		helpStyle.Render("n: new | d: del | c: complete | enter: view | ?: help | q: quit | tab: kanban"),
+	))
+}
+
+func (m model) viewKanbanView() string {
+	return appStyle.Render(lipgloss.JoinVertical(lipgloss.Left,
+		titleStyle.Render("TermiDone - Kanban View"),
+		"Kanban view coming soon...",
+		helpStyle.Render("q: quit | tab: list"),
+	))
+}
+
 func (m *model) helpView() string {
 	var builder strings.Builder
 	keybindings := [][2]string{
@@ -467,6 +539,7 @@ func (m *model) helpView() string {
 		{"r", "Generate report"},
 		{"enter", "View task details"},
 		{"j/k, ↑/↓", "Navigate list"},
+		{"tab", "Toggle List/Kanban view"},
 		{"esc", "Go back / cancel"},
 		{"q", "Quit (from main view)"},
 		{"?", "Toggle this help view"},
