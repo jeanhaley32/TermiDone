@@ -541,6 +541,20 @@ func (m model) updateKanbanView(msg tea.Msg) (tea.Model, tea.Cmd) {
                         m.tasks[i].Column = ColumnTodo       // Move back to Todo
                         m.saveTasks()
                         m.statusMessage = fmt.Sprintf("Uncompleted task: %s", m.tasks[i].TaskTitle)
+
+                        // Adjust selectedTaskIndex for the Done column after uncompleting
+                        doneTasksAfterUncomplete := []Task{}
+                        for _, t := range m.tasks {
+                            if t.Column == ColumnDone {
+                                doneTasksAfterUncomplete = append(doneTasksAfterUncomplete, t)
+                            }
+                        }
+                        if m.selectedTaskIndex[ColumnDone] >= len(doneTasksAfterUncomplete) && len(doneTasksAfterUncomplete) > 0 {
+                            m.selectedTaskIndex[ColumnDone] = len(doneTasksAfterUncomplete) - 1
+                        } else if len(doneTasksAfterUncomplete) == 0 {
+                            m.selectedTaskIndex[ColumnDone] = 0
+                        }
+
                         break
                     }
                 }
