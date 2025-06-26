@@ -43,4 +43,3 @@ A terminal-based TODO list and work timer built with Go and the Charmbracelet su
 | `esc`       | Go back / cancel                  |
 | `q`         | Quit (from main view)             |
 | `?`         | Toggle this help view             |
-
