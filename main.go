@@ -491,81 +491,111 @@ func (m model) updateKanbanView(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.quitting = true
 			return m, tea.Quit
 		case "left", "h":
-			if m.selectedColumn > ColumnTodo {
-				m.selectedColumn--
-				m.statusMessage = fmt.Sprintf("Switched to %s column", m.columnName(m.selectedColumn))
-			}
+			return m.handleKanbanColumnNavigation(msg)
 		case "right", "l":
-			if m.selectedColumn < ColumnDone {
-				m.selectedColumn++
-				m.statusMessage = fmt.Sprintf("Switched to %s column", m.columnName(m.selectedColumn))
-			}
+			return m.handleKanbanColumnNavigation(msg)
 		case "up", "k":
-			if len(currentColumnTasks) > 0 && m.selectedTaskIndex[m.selectedColumn] > 0 {
-				m.selectedTaskIndex[m.selectedColumn]--
-			}
+			return m.handleKanbanTaskNavigation(msg, currentColumnTasks)
 		case "down", "j":
-			if len(currentColumnTasks) > 0 && m.selectedTaskIndex[m.selectedColumn] < len(currentColumnTasks)-1 {
-				m.selectedTaskIndex[m.selectedColumn]++
-			}
+			return m.handleKanbanTaskNavigation(msg, currentColumnTasks)
 		case "enter":
-			if len(currentColumnTasks) > 0 {
-				selectedTask := currentColumnTasks[m.selectedTaskIndex[m.selectedColumn]]
-				for i := range m.tasks {
-					if m.tasks[i].ID == selectedTask.ID {
-						if m.tasks[i].Column < ColumnDone {
-							m.tasks[i].Column++
-							if m.tasks[i].Column == ColumnDone {
-								m.tasks[i].Completed = true
-								m.tasks[i].CompletedAt = time.Now()
-							}
-                            m.saveTasks()
-                            m.statusMessage = fmt.Sprintf("Moved task \"%s\" to %s", m.tasks[i].TaskTitle, m.columnName(m.tasks[i].Column))
-                            // Reset selected task index for the old column if it's out of bounds
-                            // This is a simplified approach; a more robust solution might re-evaluate all indices.
-                            if m.selectedTaskIndex[m.selectedColumn] >= len(currentColumnTasks)-1 && len(currentColumnTasks) > 1 {
-                                m.selectedTaskIndex[m.selectedColumn]--
-                            }
-                            break
-                        }
-                    }
-                }
-            } else {
-                m.statusMessage = "No tasks to move in this column."
-            }
-        case "u": // Uncomplete task
-            if len(currentColumnTasks) > 0 {
-                selectedTask := currentColumnTasks[m.selectedTaskIndex[m.selectedColumn]]
-                for i := range m.tasks {
-                    if m.tasks[i].ID == selectedTask.ID && m.tasks[i].Completed {
-                        m.tasks[i].Completed = false
-                        m.tasks[i].CompletedAt = time.Time{} // Reset CompletedAt
-                        m.tasks[i].Column = ColumnTodo       // Move back to Todo
-                        m.saveTasks()
-                        m.statusMessage = fmt.Sprintf("Uncompleted task: %s", m.tasks[i].TaskTitle)
+			return m.handleKanbanTaskMove(currentColumnTasks)
+		case "u": // Uncomplete task
+			return m.handleKanbanUncompleteTask(currentColumnTasks)
+		}
+	}
+	return m, nil
+}
 
-                        // Adjust selectedTaskIndex for the Done column after uncompleting
-                        doneTasksAfterUncomplete := []Task{}
-                        for _, t := range m.tasks {
-                            if t.Column == ColumnDone {
-                                doneTasksAfterUncomplete = append(doneTasksAfterUncomplete, t)
-                            }
-                        }
-                        if m.selectedTaskIndex[ColumnDone] >= len(doneTasksAfterUncomplete) && len(doneTasksAfterUncomplete) > 0 {
-                            m.selectedTaskIndex[ColumnDone] = len(doneTasksAfterUncomplete) - 1
-                        } else if len(doneTasksAfterUncomplete) == 0 {
-                            m.selectedTaskIndex[ColumnDone] = 0
-                        }
+func (m model) handleKanbanColumnNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "left", "h":
+		if m.selectedColumn > ColumnTodo {
+			m.selectedColumn--
+			m.statusMessage = fmt.Sprintf("Switched to %s column", m.columnName(m.selectedColumn))
+		}
+	case "right", "l":
+		if m.selectedColumn < ColumnDone {
+			m.selectedColumn++
+			m.statusMessage = fmt.Sprintf("Switched to %s column", m.columnName(m.selectedColumn))
+		}
+	}
+	return m, nil
+}
 
-                        break
-                    }
-                }
-            } else {
-                m.statusMessage = "No task to uncomplete."
-            }
-        }
-    }
-    return m, nil
+func (m model) handleKanbanTaskNavigation(msg tea.KeyMsg, currentColumnTasks []Task) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if len(currentColumnTasks) > 0 && m.selectedTaskIndex[m.selectedColumn] > 0 {
+			m.selectedTaskIndex[m.selectedColumn]--
+		}
+	case "down", "j":
+		if len(currentColumnTasks) > 0 && m.selectedTaskIndex[m.selectedColumn] < len(currentColumnTasks)-1 {
+			m.selectedTaskIndex[m.selectedColumn]++
+		}
+	}
+	return m, nil
+}
+
+func (m model) handleKanbanTaskMove(currentColumnTasks []Task) (tea.Model, tea.Cmd) {
+	if len(currentColumnTasks) > 0 {
+		selectedTask := currentColumnTasks[m.selectedTaskIndex[m.selectedColumn]]
+		for i := range m.tasks {
+			if m.tasks[i].ID == selectedTask.ID {
+				if m.tasks[i].Column < ColumnDone {
+					m.tasks[i].Column++
+					if m.tasks[i].Column == ColumnDone {
+						m.tasks[i].Completed = true
+						m.tasks[i].CompletedAt = time.Now()
+					}
+					m.saveTasks()
+					m.statusMessage = fmt.Sprintf("Moved task \"%s\" to %s", m.tasks[i].TaskTitle, m.columnName(m.tasks[i].Column))
+					// Reset selected task index for the old column if it's out of bounds
+					// This is a simplified approach; a more robust solution might re-evaluate all indices.
+					if m.selectedTaskIndex[m.selectedColumn] >= len(currentColumnTasks)-1 && len(currentColumnTasks) > 1 {
+						m.selectedTaskIndex[m.selectedColumn]--
+					}
+					break
+				}
+			}
+		}
+	} else {
+		m.statusMessage = "No tasks to move in this column."
+	}
+	return m, nil
+}
+
+func (m model) handleKanbanUncompleteTask(currentColumnTasks []Task) (tea.Model, tea.Cmd) {
+	if len(currentColumnTasks) > 0 {
+		selectedTask := currentColumnTasks[m.selectedTaskIndex[m.selectedColumn]]
+		for i := range m.tasks {
+			if m.tasks[i].ID == selectedTask.ID && m.tasks[i].Completed {
+				m.tasks[i].Completed = false
+				m.tasks[i].CompletedAt = time.Time{} // Reset CompletedAt
+				m.tasks[i].Column = ColumnTodo       // Move back to Todo
+				m.saveTasks()
+				m.statusMessage = fmt.Sprintf("Uncompleted task: %s", m.tasks[i].TaskTitle)
+
+				// Adjust selectedTaskIndex for the Done column after uncompleting
+				doneTasksAfterUncomplete := []Task{}
+				for _, t := range m.tasks {
+					if t.Column == ColumnDone {
+						doneTasksAfterUncomplete = append(doneTasksAfterUncomplete, t)
+					}
+				}
+				if m.selectedTaskIndex[ColumnDone] >= len(doneTasksAfterUncomplete) && len(doneTasksAfterUncomplete) > 0 {
+					m.selectedTaskIndex[ColumnDone] = len(doneTasksAfterUncomplete) - 1
+				} else if len(doneTasksAfterUncomplete) == 0 {
+					m.selectedTaskIndex[ColumnDone] = 0
+				}
+
+				break
+			}
+		}
+	} else {
+		m.statusMessage = "No task to uncomplete."
+	}
+	return m, nil
 }
 
 func (m model) columnName(col KanbanColumn) string {
@@ -686,22 +716,7 @@ func (m model) viewKanbanView() string {
 		Height(columnHeight)
 
 	// Filter tasks by column
-	todoTasks := []Task{}
-	inProgressTasks := []Task{}
-	doneTasks := []Task{}
-
-	for _, task := range m.tasks {
-		if task.Completed {
-			doneTasks = append(doneTasks, task)
-			continue
-		}
-		switch task.Column {
-		case ColumnTodo:
-			todoTasks = append(todoTasks, task)
-		case ColumnInProgress:
-			inProgressTasks = append(inProgressTasks, task)
-		}
-	}
+	todoTasks, inProgressTasks, doneTasks := m.filterTasksByColumn()
 
 	// Render columns
 	var todoContent, inProgressContent, doneContent string
@@ -770,6 +785,26 @@ func (m model) viewKanbanView() string {
 		statusMessageStyle(m.statusMessage),
 		helpStyle.Render("q: quit | tab: list | ←/→: navigate columns | ↑/↓: navigate tasks | enter: move task | u: uncomplete task"),
 	))
+}
+
+func (m *model) filterTasksByColumn() ([]Task, []Task, []Task) {
+	todoTasks := []Task{}
+	inProgressTasks := []Task{}
+	doneTasks := []Task{}
+
+	for _, task := range m.tasks {
+		if task.Completed {
+			doneTasks = append(doneTasks, task)
+			continue
+		}
+		switch task.Column {
+		case ColumnTodo:
+			todoTasks = append(todoTasks, task)
+		case ColumnInProgress:
+			inProgressTasks = append(inProgressTasks, task)
+		}
+	}
+	return todoTasks, inProgressTasks, doneTasks
 }
 
 func (m *model) helpView() string {
