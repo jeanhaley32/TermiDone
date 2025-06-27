@@ -45,14 +45,12 @@ var (
 	columnStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("63")).
-		Padding(1, 2).
-		Width(25)
+		Padding(1, 2)
 
 	focusedColumnStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("205")).
-		Padding(1, 2).
-		Width(25)
+		Padding(1, 2)
 
 	taskStyle = lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder(), false, false, false, true).
@@ -140,6 +138,8 @@ type model struct {
 	statusMessage string
 	selectedColumn KanbanColumn
 	selectedTaskIndex [3]int // 0: Todo, 1: InProgress, 2: Done
+	width             int
+	height            int
 }
 
 func initialModel() model {
@@ -255,6 +255,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
 		m.list.SetWidth(msg.Width)
 		m.list.SetHeight(msg.Height - 5) // Adjust height for status/input
 		return m, nil
@@ -664,6 +666,25 @@ func (m model) viewListView() string {
 }
 
 func (m model) viewKanbanView() string {
+	// Calculate dynamic column width
+	columnWidth := (m.width - appStyle.GetHorizontalPadding() * 2 - (3 * 2)) / 3 // Total width - app padding - borders
+	columnHeight := m.height - appStyle.GetVerticalPadding()*2 - titleStyle.GetHeight() - lipgloss.Height(statusMessageStyle("")) - helpStyle.GetHeight() - 2 // Adjust for title, status, help, and borders
+
+	// Update column styles with dynamic width and height
+	dynamicColumnStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("63")).
+		Padding(1, 2).
+		Width(columnWidth).
+		Height(columnHeight)
+
+	dynamicFocusedColumnStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("205")).
+		Padding(1, 2).
+		Width(columnWidth).
+		Height(columnHeight)
+
 	// Filter tasks by column
 	todoTasks := []Task{}
 	inProgressTasks := []Task{}
@@ -712,32 +733,32 @@ func (m model) viewKanbanView() string {
 		doneContent += style.Render(task.Title()) + "\n"
 	}
 
-	todoColumn := columnStyle.Render(lipgloss.JoinVertical(lipgloss.Left,
+	todoColumn := dynamicColumnStyle.Render(lipgloss.JoinVertical(lipgloss.Left,
 		"TODO",
 		todoContent,
 	))
-	inProgressColumn := columnStyle.Render(lipgloss.JoinVertical(lipgloss.Left,
+	inProgressColumn := dynamicColumnStyle.Render(lipgloss.JoinVertical(lipgloss.Left,
 		"IN PROGRESS",
 		inProgressContent,
 	))
-	doneColumn := columnStyle.Render(lipgloss.JoinVertical(lipgloss.Left,
+	doneColumn := dynamicColumnStyle.Render(lipgloss.JoinVertical(lipgloss.Left,
 		"DONE",
 		doneContent,
 	))
 
 	switch m.selectedColumn {
 	case ColumnTodo:
-		todoColumn = focusedColumnStyle.Render(lipgloss.JoinVertical(lipgloss.Left,
+		todoColumn = dynamicFocusedColumnStyle.Render(lipgloss.JoinVertical(lipgloss.Left,
 			"TODO",
 			todoContent,
 		))
 	case ColumnInProgress:
-		inProgressColumn = focusedColumnStyle.Render(lipgloss.JoinVertical(lipgloss.Left,
+		inProgressColumn = dynamicFocusedColumnStyle.Render(lipgloss.JoinVertical(lipgloss.Left,
 			"IN PROGRESS",
 			inProgressContent,
 		))
 	case ColumnDone:
-		doneColumn = focusedColumnStyle.Render(lipgloss.JoinVertical(lipgloss.Left,
+		doneColumn = dynamicFocusedColumnStyle.Render(lipgloss.JoinVertical(lipgloss.Left,
 			"DONE",
 			doneContent,
 		))
