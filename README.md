@@ -7,7 +7,7 @@ A terminal-based TODO list and work timer built with Go and the Charmbracelet su
 ## Features
 
 - **TODO List Management:** View, add, complete, and delete tasks.
-- **Kanban Board View:** Organize tasks into "To Do", "In Progress", and "Done" columns.
+- **Kanban Board View:** Organize tasks into "To Do", "In Progress", and "Done" columns, with dynamic scaling based on terminal size.
 - **Integrated Work Timer:** Start a Pomodoro-style timer for any task.
 - **State Persistence:** Your tasks are saved to `~/.config/termidone/tasks.json` and reloaded on startup.
 - **Work Reporting:** Generate a Markdown report of completed tasks for the day.
