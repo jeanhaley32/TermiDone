@@ -141,8 +141,15 @@ func (m *model) loadTasks() {
 
 	err = json.Unmarshal(data, &m.tasks)
 	if err != nil {
-		m.statusMessage = fmt.Sprintf("Error unmarshaling tasks: %v", err)
-		m.tasks = []Task{} // Reset tasks if unmarshaling fails
+		// Don't silently discard a corrupt file: preserve it under a timestamped
+		// backup so a save can't overwrite recoverable data, and start empty.
+		backup := fmt.Sprintf("%s.corrupt-%d", filePath, time.Now().Unix())
+		if renameErr := os.Rename(filePath, backup); renameErr == nil {
+			m.statusMessage = fmt.Sprintf("Tasks file was unreadable; backed up to %s", backup)
+		} else {
+			m.statusMessage = fmt.Sprintf("Error unmarshaling tasks: %v", err)
+		}
+		m.tasks = []Task{}
 	}
 }
 
@@ -156,8 +163,9 @@ func (m *model) saveTasks() {
 	configPath := fmt.Sprintf("%s/.config/termidone", homeDir)
 	filePath := fmt.Sprintf("%s/tasks.json", configPath)
 
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		os.MkdirAll(configPath, 0755)
+	if err := os.MkdirAll(configPath, 0755); err != nil {
+		m.statusMessage = fmt.Sprintf("Error creating config dir: %v", err)
+		return
 	}
 
 	data, err := json.MarshalIndent(m.tasks, "", "  ")
@@ -166,9 +174,15 @@ func (m *model) saveTasks() {
 		return
 	}
 
-	err = ioutil.WriteFile(filePath, data, 0644)
-	if err != nil {
+	// Write atomically: a full write to a temp file in the same dir, then rename.
+	// A crash/power-loss mid-write can't leave tasks.json truncated or empty.
+	tmpPath := filePath + ".tmp"
+	if err := ioutil.WriteFile(tmpPath, data, 0644); err != nil {
 		m.statusMessage = fmt.Sprintf("Error writing tasks file: %v", err)
+		return
+	}
+	if err := os.Rename(tmpPath, filePath); err != nil {
+		m.statusMessage = fmt.Sprintf("Error saving tasks file: %v", err)
 	}
 }
 
